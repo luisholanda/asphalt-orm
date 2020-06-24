@@ -87,17 +87,48 @@ where
             match depth {
                 0 => panic!("Tried to commit with no transaction opened!"),
                 1 => match conn.simple_execute("COMMIT").await {
-                    e => self.decrement_depth(),
+                    Err(err) => {
+                        if err.kind().is_serialization_failure()
+                            || err.kind().is_read_only_transaction()
+                        {
+                            if let Err(err) =
+                                self.decrement_depth(conn.simple_execute("ROLLBACK").await)
+                            {
+                                self.set_broken();
+                                return Err(err);
+                            }
+                        }
+                        Err(err)
+                    }
+                    e => self.decrement_depth(e),
                 },
+                _ => {
+                    let qry = format!("RELEASE SAVEPOINT asphalt_savepoint_{}", depth - 1);
+                    let res = conn.simple_execute(&qry).await;
+
+                    self.decrement_depth(res)
+                }
             }
         })
     }
 
     fn rollback_transaction<'c>(&'c self, conn: &'c Conn) -> BoxFuture<'c, QueryResult<()>> {
-        unimplemented!()
+        Box::pin(async move {
+            let depth = self.current_depth();
+            match depth {
+                0 => panic!("Tried to rollback with no transaction opened!"),
+                1 => self.decrement_depth(conn.simple_execute("ROLLBACK").await),
+                _ => {
+                    let qry = format!("ROLLBACK TO SAVEPOINT asphalt_savepoint_{}", depth - 1);
+                    let res = conn.simple_execute(&qry).await;
+
+                    self.decrement_depth(res)
+                }
+            }
+        })
     }
 
     fn is_broken(&self) -> bool {
-        unimplemented!()
+        self.broken.load(Ordering::Relaxed)
     }
 }

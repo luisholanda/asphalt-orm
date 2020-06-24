@@ -33,6 +33,22 @@ pub enum ErrorKind {
     RollbackTransaction,
 }
 
+impl ErrorKind {
+    pub(crate) fn is_serialization_failure(&self) -> bool {
+        match self {
+            Self::DatabaseError(DatabaseErrorKind::SerializationFailure, _) => true,
+            _ => false,
+        }
+    }
+
+    pub(crate) fn is_read_only_transaction(&self) -> bool {
+        match self {
+            Self::DatabaseError(DatabaseErrorKind::ReadOnlyTransaction, _) => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum DatabaseErrorKind {
@@ -40,6 +56,7 @@ pub enum DatabaseErrorKind {
     ForeignKeyViolation,
     UnableToSendCommand,
     SerializationFailure,
+    ReadOnlyTransaction,
 }
 
 pub trait DatabaseErrorInformation {

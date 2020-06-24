@@ -70,8 +70,12 @@ where
     fn is_broken(&self) -> bool;
 }
 
-/// A noop impl.
-impl<Conn> TransactionManager<Conn> for ()
+/// A transaction manager that does nothing.
+///
+/// Useful when implementing backends that doesn't support transactions.
+pub struct NoopTransactionManager;
+
+impl<Conn> TransactionManager<Conn> for NoopTransactionManager
 where
     Conn: RawConnection,
 {
@@ -105,7 +109,6 @@ where
     conn: &'c Conn,
     #[pin]
     state: TransactionState<'c, F>,
-    config: TransactionConfig,
 }
 
 impl<'c, Conn, F> Transaction<'c, Conn, F>
@@ -116,20 +119,25 @@ where
     pub(super) fn new(conn: &'c Conn, inner: F) -> Self {
         Self {
             conn,
-            state: TransactionState::NotStarted(Some(inner)),
-            config: TransactionConfig::default(),
+            state: TransactionState::NotStarted(Some(inner), Some(TransactionConfig::default())),
         }
     }
 
     /// Sets the isolation level of the transaction.
     pub fn isolation_level(mut self, level: IsolationLevel) -> Self {
-        self.config.isolation = Some(level);
+        match &mut self.state {
+            TransactionState::NotStarted(_, Some(conf)) => conf.isolation = Some(level),
+            _ => unreachable!("Moved a started Transaction future!"),
+        }
         self
     }
 
     /// Sets the access mode of the transaction.
-    pub fn read_only(mut self, read_only: bool) -> Self {
-        self.config.read_only = Some(read_only);
+    pub fn read_only(mut self) -> Self {
+        match &mut self.state {
+            TransactionState::NotStarted(_, Some(conf)) => conf.read_only = Some(true),
+            _ => unreachable!("Moved a started Transaction future!"),
+        }
         self
     }
 }
@@ -141,7 +149,7 @@ where
     F: TryFuture,
 {
     /// The transaction is still not started.
-    NotStarted(Option<F>),
+    NotStarted(Option<F>, Option<TransactionConfig>),
     /// The transaction is starting.
     Beginning(#[pin] BoxFuture<'c, QueryResult<()>>, Option<F>),
     /// The transaction is in progress.
@@ -186,9 +194,9 @@ where
         let mut me = self.project();
 
         let next = match me.state.as_mut().project() {
-            StateProj::NotStarted(inner) => {
+            StateProj::NotStarted(inner, config) => {
                 let tm = me.conn.transaction_manager();
-                let begin = tm.begin_transaction(std::mem::take(&mut me.config), me.conn);
+                let begin = tm.begin_transaction(config.take().unwrap(), me.conn);
                 TransactionState::Beginning(begin, inner.take())
             }
             StateProj::Beginning(begin, inner) => {

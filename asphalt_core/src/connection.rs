@@ -9,7 +9,9 @@ mod transaction;
 #[doc(inline)]
 pub use self::row::{Row, RowColumn, RowStream};
 #[doc(inline)]
-pub use self::transaction::{IsolationLevel, Transaction, TransactionConfig, TransactionManager};
+pub use self::transaction::{
+    IsolationLevel, NoopTransactionManager, Transaction, TransactionConfig, TransactionManager,
+};
 
 /// A low level connection to a backend.
 pub trait RawConnection: Sized + Send + Sync {
@@ -26,23 +28,22 @@ pub trait RawConnection: Sized + Send + Sync {
 
     /// Establish a new connection.
     fn establish(config: &Self::Config) -> BoxFuture<'_, QueryResult<Self>>;
-    
+
     /// Returns the transaction manager of this connection.
     fn transaction_manager(&self) -> &Self::TransactionManager;
-    
+
     /// Execute a simple SQL query.
     fn simple_execute(&self, sql: &str) -> BoxFuture<'_, QueryResult<()>>;
-    
+
     /// Execute the given query, returning the number of affected rows.
     fn execute(&self, query: Query<Self::Backend>) -> BoxFuture<'_, QueryResult<usize>>;
-    
+
     /// Execute the given query, returning the result set.
     fn query(&self, query: Query<Self::Backend>)
         -> BoxFuture<'_, QueryResult<RowStream<'_, Self>>>;
 
     /// Returns an instance of the type used to lookup type metadata.
     fn metadata_lookup(&self) -> &<Self::Backend as TypeMetadata>::MetadataLookup;
-    
 }
 
 /// A mid level connection to a backend.

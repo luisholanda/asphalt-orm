@@ -10,4 +10,5 @@ members = ["asphalt_core"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-asphalt_core = { path = "./asphalt_core" }
+asphalt-core = { path = "./asphalt-core" }
+

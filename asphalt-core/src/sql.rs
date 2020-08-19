@@ -1,7 +1,7 @@
 use crate::connection::{IsolationLevel, RawConnection, TransactionConfig, TransactionManager};
 use crate::error::QueryResult;
 use crate::extensions::{supports, ReadOnly, Supports, Transaction};
-use futures_core::future::BoxFuture;
+use futures_core::future::LocalBoxFuture;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 /// An implementation of [`TransactionManager`] for the backends which use the ANSI syntax
@@ -60,13 +60,13 @@ impl AnsiTransactionManager {
 
 impl<Conn> TransactionManager<Conn> for AnsiTransactionManager
 where
-    Conn: RawConnection + Supports<Transaction>,
+    Conn: RawConnection,
 {
     fn begin_transaction<'c>(
         &'c self,
         config: TransactionConfig,
         conn: &'c Conn,
-    ) -> BoxFuture<'c, QueryResult<()>> {
+    ) -> LocalBoxFuture<'c, QueryResult<()>> {
         Box::pin(async move {
             let depth = self.current_depth();
 
@@ -81,7 +81,7 @@ where
         })
     }
 
-    fn commit_transaction<'c>(&'c self, conn: &'c Conn) -> BoxFuture<'c, QueryResult<()>> {
+    fn commit_transaction<'c>(&'c self, conn: &'c Conn) -> LocalBoxFuture<'c, QueryResult<()>> {
         Box::pin(async move {
             let depth = self.current_depth();
             match depth {
@@ -112,7 +112,7 @@ where
         })
     }
 
-    fn rollback_transaction<'c>(&'c self, conn: &'c Conn) -> BoxFuture<'c, QueryResult<()>> {
+    fn rollback_transaction<'c>(&'c self, conn: &'c Conn) -> LocalBoxFuture<'c, QueryResult<()>> {
         Box::pin(async move {
             let depth = self.current_depth();
             match depth {

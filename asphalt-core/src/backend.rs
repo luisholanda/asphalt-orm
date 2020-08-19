@@ -1,7 +1,9 @@
+use crate::connection::RawConnection;
+use crate::error::QueryResult;
 use crate::query::{BindCollector, PreparableQuery, QueryWriter};
 use crate::types::{NotNull, Nullable};
 use crate::values::RawValue;
-use futures_util::future::BoxFuture;
+use futures_util::future::LocalBoxFuture;
 
 /// A database backend.
 ///
@@ -19,17 +21,19 @@ pub trait Backend: Sized + TypeMetadata {
     type BindName;
     /// Type used as bind parameters collector.
     type BindCollector: BindCollector<Self>;
+    /// The raw connection for this backend.
+    type RawConnection: RawConnection<Backend = Self>;
     /// The type of raw values used to communicate with the backend.
     ///
     /// See [`RawValue`] for more info.
-    type RawValue: RawValue<Self>;
-    /// Data contained in a row.
-    type RowData;
+    type RawValue<'b>: RawValue<Self>;
 }
 
 /// Indicates that a sql type exists in the database.
 pub trait HasSqlType<Ty>: TypeMetadata {
-    fn metadata(lookup: &Self::MetadataLookup) -> BoxFuture<'_, Self::TypeMetadata>;
+    fn metadata(
+        lookup: &Self::MetadataLookup,
+    ) -> LocalBoxFuture<'_, QueryResult<Self::TypeMetadata>>;
 }
 
 impl<SqlTy, Db> HasSqlType<Nullable<SqlTy>> for Db
@@ -37,7 +41,9 @@ where
     Db: HasSqlType<SqlTy>,
     SqlTy: NotNull,
 {
-    fn metadata(lookup: &Self::MetadataLookup) -> BoxFuture<'_, Self::TypeMetadata> {
+    fn metadata(
+        lookup: &Self::MetadataLookup,
+    ) -> LocalBoxFuture<'_, QueryResult<Self::TypeMetadata>> {
         <Db as HasSqlType<SqlTy>>::metadata(lookup)
     }
 }

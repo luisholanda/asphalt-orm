@@ -1,6 +1,6 @@
 use super::RawConnection;
 use crate::error::{Error, QueryResult};
-use futures_util::future::{BoxFuture, CatchUnwind, TryFuture};
+use futures_util::future::{CatchUnwind, LocalBoxFuture, TryFuture};
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::pin::Pin;
@@ -55,16 +55,16 @@ where
         &'c self,
         config: TransactionConfig,
         conn: &'c Conn,
-    ) -> BoxFuture<'c, QueryResult<()>>;
+    ) -> LocalBoxFuture<'c, QueryResult<()>>;
 
     /// Commit the transaction.
     ///
     /// Is expected that the implementation rollback the transaction if the `COMMIT` operation
     /// failed due to a serialization error.
-    fn commit_transaction<'c>(&'c self, conn: &'c Conn) -> BoxFuture<'c, QueryResult<()>>;
+    fn commit_transaction<'c>(&'c self, conn: &'c Conn) -> LocalBoxFuture<'c, QueryResult<()>>;
 
     /// Rollbacks the transaction.
-    fn rollback_transaction<'c>(&'c self, conn: &'c Conn) -> BoxFuture<'c, QueryResult<()>>;
+    fn rollback_transaction<'c>(&'c self, conn: &'c Conn) -> LocalBoxFuture<'c, QueryResult<()>>;
 
     /// Returns whether the connection is in a broken state.
     fn is_broken(&self) -> bool;
@@ -83,15 +83,15 @@ where
         &'c self,
         _config: TransactionConfig,
         _conn: &'c Conn,
-    ) -> BoxFuture<'c, QueryResult<()>> {
+    ) -> LocalBoxFuture<'c, QueryResult<()>> {
         Box::pin(async move { Ok(()) })
     }
 
-    fn commit_transaction<'c>(&'c self, _conn: &'c Conn) -> BoxFuture<'c, QueryResult<()>> {
+    fn commit_transaction<'c>(&'c self, _conn: &'c Conn) -> LocalBoxFuture<'c, QueryResult<()>> {
         Box::pin(async move { Ok(()) })
     }
 
-    fn rollback_transaction<'c>(&'c self, _conn: &'c Conn) -> BoxFuture<'c, QueryResult<()>> {
+    fn rollback_transaction<'c>(&'c self, _conn: &'c Conn) -> LocalBoxFuture<'c, QueryResult<()>> {
         Box::pin(async move { Ok(()) })
     }
 
@@ -151,14 +151,14 @@ where
     /// The transaction is still not started.
     NotStarted(Option<F>, Option<TransactionConfig>),
     /// The transaction is starting.
-    Beginning(#[pin] BoxFuture<'c, QueryResult<()>>, Option<F>),
+    Beginning(#[pin] LocalBoxFuture<'c, QueryResult<()>>, Option<F>),
     /// The transaction is in progress.
     InProgress(#[pin] CatchUnwind<AssertUnwindSafe<F>>),
     /// The transaction is committing.
     Committing {
         /// The commit future.
         #[pin]
-        inner: BoxFuture<'c, QueryResult<()>>,
+        inner: LocalBoxFuture<'c, QueryResult<()>>,
         /// The result of the transaction.
         output: Option<F::Ok>,
     },
@@ -166,7 +166,7 @@ where
     Aborting {
         /// The commit future.
         #[pin]
-        inner: BoxFuture<'c, QueryResult<()>>,
+        inner: LocalBoxFuture<'c, QueryResult<()>>,
         /// The result of the transaction.
         output: Option<F::Error>,
     },
@@ -174,7 +174,7 @@ where
     Panicking {
         /// Abort future.
         #[pin]
-        inner: BoxFuture<'c, QueryResult<()>>,
+        inner: LocalBoxFuture<'c, QueryResult<()>>,
         /// The panic payload.
         payload: Option<Box<dyn std::any::Any + Send>>,
     },

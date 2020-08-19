@@ -1,9 +1,12 @@
-#![feature(specialization, negative_impls, const_fn, backtrace)]
+#![feature(specialization, negative_impls, const_fn, backtrace, bool_to_option)]
+#![feature(generic_associated_types)]
 
 #[macro_use]
 extern crate futures_core;
 #[macro_use]
 extern crate pin_project;
+
+pub use futures_util::future::LocalBoxFuture;
 
 /// Traits and types related to database backends.
 pub mod backend;

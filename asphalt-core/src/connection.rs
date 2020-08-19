@@ -1,17 +1,19 @@
 use crate::backend::{Backend, TypeMetadata};
 use crate::error::{Error, QueryResult};
 use crate::query::{PreparableQuery, PreparedQuery, Query, QueryBuilder};
-use futures_util::future::{BoxFuture, Future};
+use futures_util::future::{Future, LocalBoxFuture};
 
 mod row;
 mod transaction;
 
 #[doc(inline)]
-pub use self::row::{Row, RowColumn, RowStream};
+pub use self::row::{Row, RowStream};
 #[doc(inline)]
 pub use self::transaction::{
     IsolationLevel, NoopTransactionManager, Transaction, TransactionConfig, TransactionManager,
 };
+
+pub type EstablishResult<Conn> = Result<Conn, <Conn as RawConnection>::EstablishError>;
 
 /// A low level connection to a backend.
 pub trait RawConnection: Sized + Send + Sync {
@@ -24,23 +26,26 @@ pub trait RawConnection: Sized + Send + Sync {
     /// The configuration necessary to establish a connection.
     ///
     /// In many cases, this can be `str`.
-    type Config: ?Sized;
+    type Config: Sized;
+    type EstablishError: std::error::Error + Send + Sync;
 
     /// Establish a new connection.
-    fn establish(config: &Self::Config) -> BoxFuture<'_, QueryResult<Self>>;
+    fn establish(config: Self::Config) -> LocalBoxFuture<'static, EstablishResult<Self>>;
 
     /// Returns the transaction manager of this connection.
     fn transaction_manager(&self) -> &Self::TransactionManager;
 
     /// Execute a simple SQL query.
-    fn simple_execute(&self, sql: &str) -> BoxFuture<'_, QueryResult<()>>;
+    fn simple_execute<'s>(&'s self, sql: &'s str) -> LocalBoxFuture<'s, QueryResult<()>>;
 
     /// Execute the given query, returning the number of affected rows.
-    fn execute(&self, query: Query<Self::Backend>) -> BoxFuture<'_, QueryResult<usize>>;
+    fn execute(&self, query: Query<Self::Backend>) -> LocalBoxFuture<'_, QueryResult<u64>>;
 
     /// Execute the given query, returning the result set.
-    fn query(&self, query: Query<Self::Backend>)
-        -> BoxFuture<'_, QueryResult<RowStream<'_, Self>>>;
+    fn query(
+        &self,
+        query: Query<Self::Backend>,
+    ) -> LocalBoxFuture<'_, QueryResult<RowStream<'_, Self>>>;
 
     /// Returns an instance of the type used to lookup type metadata.
     fn metadata_lookup(&self) -> &<Self::Backend as TypeMetadata>::MetadataLookup;
@@ -55,20 +60,22 @@ pub trait RawConnection: Sized + Send + Sync {
 /// Most users will prefer to use something more high-level than this, using something like the DSL
 /// provided by `asphalt_dsl`. Some users, though, will find this interface very useful in cases of
 /// high dynamic SQL query where many backends need to be supported.
-pub struct Connection<Conn>
+pub struct Connection<Db>
 where
-    Conn: RawConnection,
+    Db: Backend,
 {
-    conn: Conn,
+    conn: Db::RawConnection,
 }
 
-impl<Conn> Connection<Conn>
+impl<Db> Connection<Db>
 where
-    Conn: RawConnection,
+    Db: Backend,
 {
     /// Establish a new connection to the backend.
-    pub async fn establish(config: &Conn::Config) -> QueryResult<Self> {
-        let conn = Conn::establish(config).await?;
+    pub async fn establish(
+        config: <Db::RawConnection as RawConnection>::Config,
+    ) -> Result<Self, <Db::RawConnection as RawConnection>::EstablishError> {
+        let conn = <Db::RawConnection as RawConnection>::establish(config).await?;
 
         Ok(Self { conn })
     }
@@ -81,7 +88,7 @@ where
     }
 
     /// Create a new [`QueryBuilder`] bound to this connection.
-    pub fn query_builder(&self) -> QueryBuilder<'_, 'static, Conn::Backend> {
+    pub fn query_builder(&self) -> QueryBuilder<'_, 'static, Db> {
         QueryBuilder::new(self.conn.metadata_lookup())
     }
 
@@ -89,11 +96,8 @@ where
     /// the bound parameters.
     pub async fn prepare<'c>(
         &'c self,
-        query: QueryBuilder<'c, 'static, Conn::Backend>,
-    ) -> QueryResult<(
-        PreparedQuery<Conn::Backend>,
-        <Conn::Backend as Backend>::BindCollector,
-    )> {
+        query: QueryBuilder<'c, 'static, Db>,
+    ) -> QueryResult<(PreparedQuery<Db>, Db::BindCollector)> {
         let Query { inner, binds } = query.finish();
         let prepared = inner.prepare(&self.conn).await?;
 
@@ -103,16 +107,13 @@ where
     /// Executes the query stored inside a [`QueryBuilder`], returning the result set as a stream.
     pub async fn query<'c>(
         &'c self,
-        query: QueryBuilder<'c, 'static, Conn::Backend>,
-    ) -> QueryResult<RowStream<'c, Conn>> {
+        query: QueryBuilder<'c, 'static, Db>,
+    ) -> QueryResult<RowStream<'c, Db::RawConnection>> {
         self.conn.query(query.finish()).await
     }
 
     /// Executes the query stored inside a [`QueryBuilder`], returning the number of affected rows.
-    pub async fn executes<'c>(
-        &'c self,
-        query: QueryBuilder<'c, 'static, Conn::Backend>,
-    ) -> QueryResult<usize> {
+    pub async fn executes<'c>(&'c self, query: QueryBuilder<'c, 'static, Db>) -> QueryResult<u64> {
         self.conn.execute(query.finish()).await
     }
 
@@ -130,7 +131,7 @@ where
     ///
     /// If the received future panics, the future returned by this function will try
     /// to rollback the transaction before resuming the panic.
-    pub fn transaction<F, T, E>(&self, fut: F) -> Transaction<'_, Conn, F>
+    pub fn transaction<F, T, E>(&self, fut: F) -> Transaction<'_, Db::RawConnection, F>
     where
         F: Future<Output = Result<T, E>> + Send,
         T: Send,

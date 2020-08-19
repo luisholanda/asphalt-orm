@@ -1,9 +1,8 @@
 use crate::backend::{Backend, BindName, HasSqlType};
-use crate::connection::RawConnection;
 use crate::error::QueryResult;
 use crate::types::ToSql;
 use crate::utils::CowMut;
-use futures_util::future::BoxFuture;
+use futures_util::future::LocalBoxFuture;
 use std::cell::Cell;
 use std::marker::PhantomData;
 
@@ -21,11 +20,9 @@ pub trait PreparableQuery<Db: Backend>: Sized {
     type Prepared: Clone;
 
     /// Prepare the query, binding it to the given connection.
-    fn prepare<Conn>(self, conn: &Conn) -> BoxFuture<QueryResult<Self::Prepared>>
-    where
-        Conn: RawConnection<Backend = Db>;
+    fn prepare(self, conn: &Db::RawConnection) -> LocalBoxFuture<QueryResult<Self::Prepared>>;
 
-    fn from_prepared(prepared: Self::Prepared, binds: Db::BindCollector) -> Self;
+    fn from_prepared(prepared: Self::Prepared) -> Self;
 }
 
 /// Type alias for a prepared query.
@@ -34,11 +31,11 @@ pub type PreparedQuery<Db> = <<Db as Backend>::Query as PreparableQuery<Db>>::Pr
 /// Manages serialization of bind parameters during query construction.
 pub trait BindCollector<Db: Backend>: Default {
     /// Add a new bind parameter to the collector.
-    fn push_bound_value<SqlTy, RustTy>(
-        &mut self,
-        bind: &RustTy,
-        metadata_lookup: &Db::MetadataLookup,
-    ) -> BoxFuture<'_, QueryResult<Db::BindName>>
+    fn push_bound_value<'a, SqlTy, RustTy>(
+        &'a mut self,
+        bind: &'a RustTy,
+        metadata_lookup: &'a Db::MetadataLookup,
+    ) -> LocalBoxFuture<'a, QueryResult<Db::BindName>>
     where
         Db: HasSqlType<SqlTy>,
         RustTy: ToSql<SqlTy, Db>;

@@ -1,6 +1,5 @@
 use crate::connection::{IsolationLevel, RawConnection, TransactionConfig, TransactionManager};
 use crate::error::QueryResult;
-use crate::extensions::{supports, ReadOnly, Supports, Transaction};
 use futures_core::future::LocalBoxFuture;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
@@ -38,20 +37,18 @@ impl AnsiTransactionManager {
     fn first_transaction<Db>(&self, config: TransactionConfig) -> String {
         let mut stmt = String::from("BEGIN");
 
-        if supports::<Db, ReadOnly>() && config.read_only == Some(true) {
+        if config.read_only == Some(true) {
             stmt.push_str(" READ ONLY");
         }
 
-        if supports::<Db, IsolationLevel>() {
-            if let Some(lvl) = config.isolation {
-                stmt.push_str(" ISOLATION LEVEL ");
+        if let Some(lvl) = config.isolation {
+            stmt.push_str(" ISOLATION LEVEL ");
 
-                stmt.push_str(match lvl {
-                    IsolationLevel::ReadCommitted => "READ COMMITTED",
-                    IsolationLevel::RepeatableRead => "REPEATABLE READ",
-                    IsolationLevel::Serializable => "SERIALIZABLE",
-                });
-            }
+            stmt.push_str(match lvl {
+                IsolationLevel::ReadCommitted => "READ COMMITTED",
+                IsolationLevel::RepeatableRead => "REPEATABLE READ",
+                IsolationLevel::Serializable => "SERIALIZABLE",
+            });
         }
 
         stmt

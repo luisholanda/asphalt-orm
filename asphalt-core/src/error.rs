@@ -18,7 +18,6 @@ pub struct Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use std::io::Write;
         match &self.kind {
             ErrorKind::NotFound => f.write_str("No row returned when one was expected"),
             ErrorKind::DatabaseError(kind, info) => match kind {

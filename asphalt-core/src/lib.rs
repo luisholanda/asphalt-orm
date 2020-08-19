@@ -1,5 +1,4 @@
-#![feature(specialization, negative_impls, const_fn, backtrace, bool_to_option)]
-#![feature(generic_associated_types)]
+#![feature(backtrace, bool_to_option, generic_associated_types, negative_impls)]
 
 #[macro_use]
 extern crate futures_core;

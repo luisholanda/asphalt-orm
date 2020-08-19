@@ -1,5 +1,6 @@
 use super::RawConnection;
 use crate::error::{Error, QueryResult};
+use crate::extensions::{IsolationLevel as IsoLvl, ReadOnly, Supports};
 use futures_util::future::{CatchUnwind, LocalBoxFuture, TryFuture};
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
@@ -100,6 +101,7 @@ where
     }
 }
 
+// TODO: what to do when Transaction is dropped?
 /// A future which executes the inner future inside a database transaction.
 #[pin_project]
 pub struct Transaction<'c, Conn, F>
@@ -124,7 +126,10 @@ where
     }
 
     /// Sets the isolation level of the transaction.
-    pub fn isolation_level(mut self, level: IsolationLevel) -> Self {
+    pub fn isolation_level(mut self, level: IsolationLevel) -> Self
+    where
+        Conn::Backend: Supports<IsoLvl>,
+    {
         match &mut self.state {
             TransactionState::NotStarted(_, Some(conf)) => conf.isolation = Some(level),
             _ => unreachable!("Moved a started Transaction future!"),
@@ -133,7 +138,10 @@ where
     }
 
     /// Sets the access mode of the transaction.
-    pub fn read_only(mut self) -> Self {
+    pub fn read_only(mut self) -> Self
+    where
+        Conn::Backend: Supports<ReadOnly>,
+    {
         match &mut self.state {
             TransactionState::NotStarted(_, Some(conf)) => conf.read_only = Some(true),
             _ => unreachable!("Moved a started Transaction future!"),

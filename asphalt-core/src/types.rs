@@ -12,8 +12,6 @@ pub use self::to::ToSql;
 /// Marker trait for types that are not nullable.
 pub trait NotNull {}
 
-default impl<T> NotNull for T {}
-
 impl<T> !NotNull for Nullable<T> {}
 
 /// Converts a type into its nullable version.

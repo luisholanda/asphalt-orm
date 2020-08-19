@@ -16,6 +16,8 @@ macro_rules! define_sql_types {
             #[doc = $sql_name]
             #[doc = "` SQL type."]
             pub struct $sql_ty;
+            
+            impl $crate::types::NotNull for $sql_ty {}
 
             $(__define_aliases!($($alias_ty)+, $sql_ty, stringify!($sql_ty));)?
         )*
